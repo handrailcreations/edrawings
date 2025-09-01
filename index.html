@@ -277,16 +277,31 @@ async function uploadFile(file){
   }
 
   try {
+    // First, let's verify we can access the repository
+    els.status.textContent = 'Checking repository access…';
+    const repoCheck = await gh(`/repos/${GH_OWNER}/${GH_REPO}`);
+    if (!repoCheck.ok) {
+      if (repoCheck.status === 404) {
+        throw new Error(`Repository ${GH_OWNER}/${GH_REPO} not found or no access. Check your token permissions.`);
+      }
+      throw new Error(`Repository access failed: ${repoCheck.status}`);
+    }
+
+    els.status.textContent = 'Processing file…';
     const arrayBuf = await file.arrayBuffer();
     const b64 = toBase64(arrayBuf);
     const filename = fileSafeName(file.name || 'model.html');
 
+    els.status.textContent = 'Checking if file exists…';
     // Check if file exists to pass sha for update
     let existingSha = null;
     const head = await gh(`/repos/${GH_OWNER}/${GH_REPO}/contents/${encodeURIComponent(filename)}`);
     if(head.ok){
       const meta = await head.json();
       existingSha = meta.sha;
+      els.status.textContent = `Updating existing file: ${filename}`;
+    } else {
+      els.status.textContent = `Creating new file: ${filename}`;
     }
 
     const user = await getUser();
@@ -301,15 +316,33 @@ async function uploadFile(file){
     };
     if(existingSha) body.sha = existingSha;
 
-    const put = await gh(`/repos/${GH_OWNER}/${GH_REPO}/contents/${encodeURIComponent(filename)}`, {
+    els.status.textContent = 'Uploading to GitHub…';
+    const uploadUrl = `/repos/${GH_OWNER}/${GH_REPO}/contents/${encodeURIComponent(filename)}`;
+    console.log('Upload URL:', uploadUrl);
+    console.log('Upload body:', body);
+
+    const put = await gh(uploadUrl, {
       method:'PUT',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify(body)
     });
 
+    console.log('Upload response status:', put.status);
+    
     if(!put.ok){
       const err = await put.json().catch(()=>({}));
-      throw new Error(err.message || `Upload failed: ${put.status}`);
+      console.log('Upload error:', err);
+      
+      let errorMsg = err.message || `HTTP ${put.status}`;
+      if (put.status === 404) {
+        errorMsg = `Repository or branch not found. Check: 1) Repository exists, 2) Branch is 'main', 3) Token has 'Contents' permission`;
+      } else if (put.status === 403) {
+        errorMsg = `Permission denied. Your token needs 'Contents' write permission for this repository`;
+      } else if (put.status === 422) {
+        errorMsg = `Invalid request: ${err.message || 'Check file content and branch name'}`;
+      }
+      
+      throw new Error(errorMsg);
     }
 
     els.status.textContent = 'Uploaded ✔';
@@ -323,6 +356,7 @@ async function uploadFile(file){
 
   } catch (error) {
     els.status.textContent = 'Upload failed: ' + error.message;
+    console.error('Upload error:', error);
   }
 }
 
