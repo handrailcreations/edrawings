@@ -64,11 +64,18 @@
     <!-- Help text -->
     <div id="helpText" class="help-text">
       <strong>How to get your token:</strong><br>
-      1. Go to <a href="https://github.com/settings/tokens?type=beta" target="_blank">GitHub Settings → Personal access tokens</a><br>
-      2. Click "Generate new token (fine-grained)"<br>
-      3. Select your repository: <strong>handrailcreations/edrawings</strong><br>
+      <strong>Option 1 (Recommended):</strong> Classic token<br>
+      1. Go to <a href="https://github.com/settings/tokens" target="_blank">GitHub Settings → Personal access tokens → Tokens (classic)</a><br>
+      2. Click "Generate new token (classic)"<br>
+      3. Check the "repo" scope (this gives full repository access)<br>
+      4. Generate token and paste it above<br><br>
+      
+      <strong>Option 2:</strong> Fine-grained token<br>
+      1. Go to <a href="https://github.com/settings/tokens?type=beta" target="_blank">GitHub Settings → Personal access tokens → Fine-grained tokens</a><br>
+      2. Click "Generate new token"<br>
+      3. Select repository: <strong>handrailcreations/edrawings</strong><br>
       4. Give it "Contents" permission (read/write)<br>
-      5. Copy the token and paste it above
+      5. Generate token and paste it above
     </div>
 
     <div id="dropzone" class="dropzone" style="display:none">
@@ -320,7 +327,7 @@ async function uploadFile(file){
       console.log('Repository appears to be empty - this is normal for new repos');
     } else if (contentsCheck.ok) {
       const contents = await contentsCheck.json();
-      console.log('Repository contents:', contents);
+      console.log('Repository contents:', contents.map(item => ({name: item.name, type: item.type})));
     }
 
     els.status.textContent = 'Checking if file exists…';
