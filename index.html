@@ -311,16 +311,31 @@ async function uploadFile(file){
     const b64 = toBase64(arrayBuf);
     const filename = fileSafeName(file.name || 'model.html');
 
+    // Check if the repository has any content at all
+    els.status.textContent = 'Checking repository contents…';
+    const contentsCheck = await gh(`/repos/${GH_OWNER}/${GH_REPO}/contents/`);
+    console.log('Contents check response:', contentsCheck.status);
+    
+    if (contentsCheck.status === 404) {
+      console.log('Repository appears to be empty - this is normal for new repos');
+    } else if (contentsCheck.ok) {
+      const contents = await contentsCheck.json();
+      console.log('Repository contents:', contents);
+    }
+
     els.status.textContent = 'Checking if file exists…';
     // Check if file exists to pass sha for update
     let existingSha = null;
     const head = await gh(`/repos/${GH_OWNER}/${GH_REPO}/contents/${encodeURIComponent(filename)}`);
+    console.log('File check response:', head.status);
     if(head.ok){
       const meta = await head.json();
       existingSha = meta.sha;
       els.status.textContent = `Updating existing file: ${filename}`;
+      console.log('File exists, SHA:', existingSha);
     } else {
       els.status.textContent = `Creating new file: ${filename}`;
+      console.log('File does not exist, creating new');
     }
 
     const user = await getUser();
