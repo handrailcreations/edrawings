@@ -305,9 +305,14 @@ async function uploadFile(file){
     }
 
     const user = await getUser();
+    // Create shorter commit messages (GitHub limit is 72 characters)
+    const username = user?.login || 'user';
+    const shortFilename = filename.length > 30 ? filename.substring(0, 27) + '...' : filename;
     const message = existingSha
-      ? `Update ${filename} by ${user?.login || 'unknown'}`
-      : `Add ${filename} by ${user?.login || 'unknown'}`;
+      ? `Update ${shortFilename}`
+      : `Add ${shortFilename}`;
+
+    console.log('Commit message:', message, '(length:', message.length, ')');
 
     const body = {
       message,
