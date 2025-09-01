@@ -280,12 +280,20 @@ async function uploadFile(file){
     // First, let's verify we can access the repository
     els.status.textContent = 'Checking repository access…';
     const repoCheck = await gh(`/repos/${GH_OWNER}/${GH_REPO}`);
+    console.log('Repository check response:', repoCheck.status);
     if (!repoCheck.ok) {
+      const repoError = await repoCheck.json().catch(() => ({}));
+      console.log('Repository check error:', repoError);
       if (repoCheck.status === 404) {
         throw new Error(`Repository ${GH_OWNER}/${GH_REPO} not found or no access. Check your token permissions.`);
       }
       throw new Error(`Repository access failed: ${repoCheck.status}`);
     }
+
+    // Get repository info to verify branch
+    const repoInfo = await repoCheck.json();
+    console.log('Repository info:', repoInfo);
+    console.log('Default branch:', repoInfo.default_branch);
 
     els.status.textContent = 'Processing file…';
     const arrayBuf = await file.arrayBuffer();
@@ -308,6 +316,11 @@ async function uploadFile(file){
     // Create shorter commit messages (GitHub limit is 72 characters)
     const username = user?.login || 'user';
     const shortFilename = filename.length > 30 ? filename.substring(0, 27) + '...' : filename;
+    
+    // Use the repository's default branch instead of hardcoding 'main'
+    const defaultBranch = repoInfo.default_branch || 'main';
+    console.log('Using branch:', defaultBranch);
+    
     const message = existingSha
       ? `Update ${shortFilename}`
       : `Add ${shortFilename}`;
@@ -317,7 +330,7 @@ async function uploadFile(file){
     const body = {
       message,
       content: b64,
-      branch: 'main'
+      branch: defaultBranch  // Use the actual default branch
     };
     if(existingSha) body.sha = existingSha;
 
