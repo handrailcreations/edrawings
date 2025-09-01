@@ -294,6 +294,17 @@ async function uploadFile(file){
     const repoInfo = await repoCheck.json();
     console.log('Repository info:', repoInfo);
     console.log('Default branch:', repoInfo.default_branch);
+    
+    // Check if we have push permissions
+    console.log('Repository permissions:', {
+      admin: repoInfo.permissions?.admin,
+      push: repoInfo.permissions?.push,
+      pull: repoInfo.permissions?.pull
+    });
+    
+    if (!repoInfo.permissions?.push) {
+      throw new Error('Token does not have push/write permissions to this repository. Please recreate your token with "Contents" write permission.');
+    }
 
     els.status.textContent = 'Processing file…';
     const arrayBuf = await file.arrayBuffer();
@@ -338,6 +349,7 @@ async function uploadFile(file){
     const uploadUrl = `/repos/${GH_OWNER}/${GH_REPO}/contents/${encodeURIComponent(filename)}`;
     console.log('Upload URL:', uploadUrl);
     console.log('Upload body:', body);
+    console.log('Token (first 10 chars):', token.substring(0, 10) + '...');
 
     const put = await gh(uploadUrl, {
       method:'PUT',
@@ -346,18 +358,26 @@ async function uploadFile(file){
     });
 
     console.log('Upload response status:', put.status);
+    console.log('Upload response headers:', Object.fromEntries(put.headers.entries()));
     
     if(!put.ok){
       const err = await put.json().catch(()=>({}));
       console.log('Upload error:', err);
       
+      // More specific error handling
       let errorMsg = err.message || `HTTP ${put.status}`;
       if (put.status === 404) {
-        errorMsg = `Repository or branch not found. Check: 1) Repository exists, 2) Branch is 'main', 3) Token has 'Contents' permission`;
+        errorMsg = `404 Error: This usually means your token lacks 'Contents' write permission. Please:
+1. Go to GitHub Settings → Personal access tokens
+2. Delete your current token
+3. Create a new fine-grained token
+4. Select repository: handrailcreations/edrawings  
+5. Under "Repository permissions", set "Contents" to "Read and write"
+6. Generate and use the new token`;
       } else if (put.status === 403) {
-        errorMsg = `Permission denied. Your token needs 'Contents' write permission for this repository`;
+        errorMsg = `403 Forbidden: ${err.message || 'Your token needs Contents write permission'}`;
       } else if (put.status === 422) {
-        errorMsg = `Invalid request: ${err.message || 'Check file content and branch name'}`;
+        errorMsg = `422 Invalid request: ${err.message || 'Check file content and branch name'}`;
       }
       
       throw new Error(errorMsg);
