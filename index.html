@@ -64,11 +64,18 @@
     <!-- Help text -->
     <div id="helpText" class="help-text">
       <strong>How to get your token:</strong><br>
-      1. Go to <a href="https://github.com/settings/tokens?type=beta" target="_blank">GitHub Settings → Personal access tokens</a><br>
-      2. Click "Generate new token (fine-grained)"<br>
-      3. Select your repository: <strong>handrailcreations/edrawings</strong><br>
+      <strong>Option 1 (Recommended):</strong> Classic token<br>
+      1. Go to <a href="https://github.com/settings/tokens" target="_blank">GitHub Settings → Personal access tokens → Tokens (classic)</a><br>
+      2. Click "Generate new token (classic)"<br>
+      3. Check the "repo" scope (this gives full repository access)<br>
+      4. Generate token and paste it above<br><br>
+      
+      <strong>Option 2:</strong> Fine-grained token<br>
+      1. Go to <a href="https://github.com/settings/tokens?type=beta" target="_blank">GitHub Settings → Personal access tokens → Fine-grained tokens</a><br>
+      2. Click "Generate new token"<br>
+      3. Select repository: <strong>handrailcreations/edrawings</strong><br>
       4. Give it "Contents" permission (read/write)<br>
-      5. Copy the token and paste it above
+      5. Generate token and paste it above
     </div>
 
     <div id="dropzone" class="dropzone" style="display:none">
@@ -280,37 +287,77 @@ async function uploadFile(file){
     // First, let's verify we can access the repository
     els.status.textContent = 'Checking repository access…';
     const repoCheck = await gh(`/repos/${GH_OWNER}/${GH_REPO}`);
+    console.log('Repository check response:', repoCheck.status);
+    
     if (!repoCheck.ok) {
+      const repoError = await repoCheck.json().catch(() => ({}));
+      console.log('Repository check error:', repoError);
       if (repoCheck.status === 404) {
         throw new Error(`Repository ${GH_OWNER}/${GH_REPO} not found or no access. Check your token permissions.`);
       }
       throw new Error(`Repository access failed: ${repoCheck.status}`);
     }
 
+    // Get repository info to verify branch and permissions
+    const repoInfo = await repoCheck.json();
+    console.log('Repository info:', repoInfo);
+    console.log('Default branch:', repoInfo.default_branch);
+    
+    // Check if we have push permissions
+    console.log('Repository permissions:', {
+      admin: repoInfo.permissions?.admin,
+      push: repoInfo.permissions?.push,
+      pull: repoInfo.permissions?.pull
+    });
+    
+    if (!repoInfo.permissions?.push) {
+      throw new Error('Token does not have push/write permissions to this repository. Please recreate your token with "Contents" write permission.');
+    }
+
+    // Process the file
     els.status.textContent = 'Processing file…';
     const arrayBuf = await file.arrayBuffer();
     const b64 = toBase64(arrayBuf);
     const filename = fileSafeName(file.name || 'model.html');
 
-    els.status.textContent = 'Checking if file exists…';
+    // Check if the repository has any content at all
+    els.status.textContent = 'Checking repository contents…';
+    const contentsCheck = await gh(`/repos/${GH_OWNER}/${GH_REPO}/contents/`);
+    console.log('Contents check response:', contentsCheck.status);
+    
+    if (contentsCheck.status === 404) {
+      console.log('Repository appears to be empty - this is normal for new repos');
+    } else if (contentsCheck.ok) {
+      const contents = await contentsCheck.json();
+      console.log('Repository contents:', contents.map(item => ({
+        name: item.name, 
+        type: item.type,
+        path: item.path,
+        sha: item.sha
+      })));
+    }
+
     // Check if file exists to pass sha for update
+    els.status.textContent = 'Checking if file exists…';
     let existingSha = null;
     const head = await gh(`/repos/${GH_OWNER}/${GH_REPO}/contents/${encodeURIComponent(filename)}`);
+    console.log('File check response:', head.status);
+    
     if(head.ok){
       const meta = await head.json();
       existingSha = meta.sha;
       els.status.textContent = `Updating existing file: ${filename}`;
+      console.log('File exists, SHA:', existingSha);
     } else {
       els.status.textContent = `Creating new file: ${filename}`;
+      console.log('File does not exist, creating new');
     }
 
+    // Prepare commit message and body
     const user = await getUser();
-    // Create shorter commit messages (GitHub limit is 72 characters)
-    const username = user?.login || 'user';
     const shortFilename = filename.length > 30 ? filename.substring(0, 27) + '...' : filename;
-    
-    // Use the repository's default branch instead of hardcoding 'main'
     const defaultBranch = repoInfo.default_branch || 'main';
+    
     console.log('Using branch:', defaultBranch);
     
     const message = existingSha
@@ -322,19 +369,24 @@ async function uploadFile(file){
     const body = {
       message,
       content: b64,
-      branch: defaultBranch  // Use the actual default branch
+      branch: defaultBranch
     };
     if(existingSha) body.sha = existingSha;
 
+    // Upload to GitHub
     els.status.textContent = 'Uploading to GitHub…';
     const uploadUrl = `/repos/${GH_OWNER}/${GH_REPO}/contents/${encodeURIComponent(filename)}`;
     console.log('Upload URL:', uploadUrl);
-    console.log('Upload body:', body);
-    console.log('Token (first 10 chars):', token.substring(0, 10) + '...');
+    console.log('Upload body keys:', Object.keys(body));
+    console.log('Content length:', body.content.length);
+    console.log('Token type:', token.startsWith('ghp_') ? 'classic' : (token.startsWith('github_pat_') ? 'fine-grained' : 'unknown'));
 
     const put = await gh(uploadUrl, {
       method:'PUT',
-      headers:{'Content-Type':'application/json'},
+      headers:{
+        'Content-Type':'application/json',
+        'User-Agent': 'eDrawings-Upload-Portal'
+      },
       body: JSON.stringify(body)
     });
 
@@ -342,28 +394,35 @@ async function uploadFile(file){
     console.log('Upload response headers:', Object.fromEntries(put.headers.entries()));
     
     if(!put.ok){
-      const err = await put.json().catch(()=>({}));
+      const responseText = await put.text();
+      console.log('Raw response:', responseText);
+      
+      let err;
+      try {
+        err = JSON.parse(responseText);
+      } catch {
+        err = {message: responseText || `HTTP ${put.status}`};
+      }
       console.log('Upload error:', err);
       
       // More specific error handling
       let errorMsg = err.message || `HTTP ${put.status}`;
       if (put.status === 404) {
-        errorMsg = `404 Error: This usually means your token lacks 'Contents' write permission. Please:
-1. Go to GitHub Settings → Personal access tokens
-2. Delete your current token
-3. Create a new fine-grained token
-4. Select repository: handrailcreations/edrawings  
-5. Under "Repository permissions", set "Contents" to "Read and write"
-6. Generate and use the new token`;
+        errorMsg = `404 Error: Cannot create/update file. This suggests:
+1. Token lacks proper permissions (try a classic token with "repo" scope)
+2. Repository or branch access issue
+3. API endpoint problem
+Raw response: ${responseText}`;
       } else if (put.status === 403) {
-        errorMsg = `403 Forbidden: ${err.message || 'Your token needs Contents write permission'}`;
+        errorMsg = `403 Forbidden: ${err.message || 'Permission denied - check token permissions'}`;
       } else if (put.status === 422) {
-        errorMsg = `422 Invalid request: ${err.message || 'Check file content and branch name'}`;
+        errorMsg = `422 Invalid request: ${err.message || 'Validation failed'}`;
       }
       
       throw new Error(errorMsg);
     }
 
+    // Success!
     els.status.textContent = 'Uploaded ✔';
     const url = PAGES_BASE + encodeURIComponent(filename);
     els.shareUrl.value = url;
@@ -445,26 +504,3 @@ async function renderRecent(){
     });
   }
   rows.sort((a,b)=>(b.when?.getTime()||0)-(a.when?.getTime()||0));
-
-  els.recentTbody.innerHTML = rows.map(r=>{
-    const dateStr = r.when ? r.when.toLocaleString() : '—';
-    return `<tr>
-      <td>${r.name}</td>
-      <td>${r.uploader}</td>
-      <td>${dateStr}</td>
-      <td><a class="link" href="${r.url}" target="_blank">Open</a></td>
-    </tr>`;
-  }).join('');
-}
-
-/* ---------- Boot ---------- */
-(async function boot(){
-  const user = await getUser();
-  setSignedIn(user);
-  if (user) {
-    renderRecent();
-  }
-})();
-</script>
-</body>
-</html>
