@@ -64,18 +64,11 @@
     <!-- Help text -->
     <div id="helpText" class="help-text">
       <strong>How to get your token:</strong><br>
-      <strong>Option 1 (Recommended):</strong> Classic token<br>
-      1. Go to <a href="https://github.com/settings/tokens" target="_blank">GitHub Settings → Personal access tokens → Tokens (classic)</a><br>
-      2. Click "Generate new token (classic)"<br>
-      3. Check the "repo" scope (this gives full repository access)<br>
-      4. Generate token and paste it above<br><br>
-      
-      <strong>Option 2:</strong> Fine-grained token<br>
-      1. Go to <a href="https://github.com/settings/tokens?type=beta" target="_blank">GitHub Settings → Personal access tokens → Fine-grained tokens</a><br>
-      2. Click "Generate new token"<br>
-      3. Select repository: <strong>handrailcreations/edrawings</strong><br>
+      1. Go to <a href="https://github.com/settings/tokens?type=beta" target="_blank">GitHub Settings → Personal access tokens</a><br>
+      2. Click "Generate new token (fine-grained)"<br>
+      3. Select your repository: <strong>handrailcreations/edrawings</strong><br>
       4. Give it "Contents" permission (read/write)<br>
-      5. Generate token and paste it above
+      5. Copy the token and paste it above
     </div>
 
     <div id="dropzone" class="dropzone" style="display:none">
@@ -287,30 +280,11 @@ async function uploadFile(file){
     // First, let's verify we can access the repository
     els.status.textContent = 'Checking repository access…';
     const repoCheck = await gh(`/repos/${GH_OWNER}/${GH_REPO}`);
-    console.log('Repository check response:', repoCheck.status);
     if (!repoCheck.ok) {
-      const repoError = await repoCheck.json().catch(() => ({}));
-      console.log('Repository check error:', repoError);
       if (repoCheck.status === 404) {
         throw new Error(`Repository ${GH_OWNER}/${GH_REPO} not found or no access. Check your token permissions.`);
       }
       throw new Error(`Repository access failed: ${repoCheck.status}`);
-    }
-
-    // Get repository info to verify branch
-    const repoInfo = await repoCheck.json();
-    console.log('Repository info:', repoInfo);
-    console.log('Default branch:', repoInfo.default_branch);
-    
-    // Check if we have push permissions
-    console.log('Repository permissions:', {
-      admin: repoInfo.permissions?.admin,
-      push: repoInfo.permissions?.push,
-      pull: repoInfo.permissions?.pull
-    });
-    
-    if (!repoInfo.permissions?.push) {
-      throw new Error('Token does not have push/write permissions to this repository. Please recreate your token with "Contents" write permission.');
     }
 
     els.status.textContent = 'Processing file…';
@@ -318,31 +292,16 @@ async function uploadFile(file){
     const b64 = toBase64(arrayBuf);
     const filename = fileSafeName(file.name || 'model.html');
 
-    // Check if the repository has any content at all
-    els.status.textContent = 'Checking repository contents…';
-    const contentsCheck = await gh(`/repos/${GH_OWNER}/${GH_REPO}/contents/`);
-    console.log('Contents check response:', contentsCheck.status);
-    
-    if (contentsCheck.status === 404) {
-      console.log('Repository appears to be empty - this is normal for new repos');
-    } else if (contentsCheck.ok) {
-      const contents = await contentsCheck.json();
-      console.log('Repository contents:', contents.map(item => ({name: item.name, type: item.type})));
-    }
-
     els.status.textContent = 'Checking if file exists…';
     // Check if file exists to pass sha for update
     let existingSha = null;
     const head = await gh(`/repos/${GH_OWNER}/${GH_REPO}/contents/${encodeURIComponent(filename)}`);
-    console.log('File check response:', head.status);
     if(head.ok){
       const meta = await head.json();
       existingSha = meta.sha;
       els.status.textContent = `Updating existing file: ${filename}`;
-      console.log('File exists, SHA:', existingSha);
     } else {
       els.status.textContent = `Creating new file: ${filename}`;
-      console.log('File does not exist, creating new');
     }
 
     const user = await getUser();
