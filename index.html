@@ -504,3 +504,26 @@ async function renderRecent(){
     });
   }
   rows.sort((a,b)=>(b.when?.getTime()||0)-(a.when?.getTime()||0));
+
+  els.recentTbody.innerHTML = rows.map(r=>{
+    const dateStr = r.when ? r.when.toLocaleString() : '—';
+    return `<tr>
+      <td>${r.name}</td>
+      <td>${r.uploader}</td>
+      <td>${dateStr}</td>
+      <td><a class="link" href="${r.url}" target="_blank">Open</a></td>
+    </tr>`;
+  }).join('');
+}
+
+/* ---------- Boot ---------- */
+(async function boot(){
+  const user = await getUser();
+  setSignedIn(user);
+  if (user) {
+    renderRecent();
+  }
+})();
+</script>
+</body>
+</html>
